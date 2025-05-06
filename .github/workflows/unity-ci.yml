@@ -25,12 +25,12 @@ jobs:
       - name: Setup Unity
         uses: game-ci/unity-builder@v2
         with:
-          unityVersion: 2023.3.0f1
+          unityVersion: 6000.0.48f1
 
       - name: Run Unit Tests
         uses: game-ci/unity-test-runner@v2
         with:
-          unityVersion: 2023.3.0f1
+          unityVersion: 6000.0.48f1
 
       - name: Build for Windows
         uses: game-ci/unity-builder@v2
@@ -38,7 +38,7 @@ jobs:
           targetPlatform: StandaloneWindows64
 
       - name: Upload Windows Build
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v2
         with:
           name: Build-Windows
           path: build/StandaloneWindows64
