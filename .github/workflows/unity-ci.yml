@@ -36,9 +36,3 @@ jobs:
         uses: game-ci/unity-builder@v2
         with:
           targetPlatform: StandaloneWindows64
-
-      - name: Upload Windows Build
-        uses: actions/upload-artifact@v2
-        with:
-          name: Build-Windows
-          path: build/StandaloneWindows64
