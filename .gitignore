@@ -1,0 +1,38 @@
+# Unity folders
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild*/
+[Ll]ogs/
+MemoryCaptures/
+UserSettings/
+
+# Rider/VS
+.idea/
+*.csproj
+*.unityproj
+*.sln
+*.suo
+*.tmp
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+
+# VS Code
+.vscode/
+
+# Mac
+.DS_Store
+
+# Builds
+*.apk
+*.aab
+*.app
+*.exe
+*.zip
+
+# TextMesh Pro
+Assets/TextMesh Pro/Examples/
+Assets/TextMesh Pro/Documentation/
