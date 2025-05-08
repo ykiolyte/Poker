@@ -1,0 +1,18 @@
+[Licensing::Module] Trying to connect to existing licensing client channel...
+[Licensing::IpcConnector] Successfully connected to the License Client on channel: "LicenseClient-ezmmr" at "2025-05-07T16:34:11.1531815Z"
+[Licensing::Client] Error: Code 10 while verifying Licensing Client signature (process Id: 20076, path: "C:/Program Files/Unity Hub/UnityLicensingClient_V1/Unity.Licensing.Client.exe")
+[Licensing::Module] Error: LicensingClient has failed validation; ignoring
+[Licensing::Client] Handshaking with LicensingClient:
+  Version:                 1.17.0+aa6cfba
+  Session Id:              782b50d250de4c88824d3345c184d4b8
+  Correlation Id:          9b2472a77ce792813b8786dd257c97cc
+  External correlation Id: 4093624741796078238
+  Machine Id:              1p37IfZguzyvc2CGra7Ws5q980U=
+[Licensing::Module] Successfully connected to LicensingClient on channel: "LicenseClient-ezmmr" (connect: 0.00s, validation: 0.01s, handshake: 0.06s)
+[Licensing::IpcConnector] Successfully connected to the License Notification on channel: "LicenseClient-ezmmr-notifications" at "2025-05-07T16:34:11.2281819Z"
+[Licensing::Module] Error: Access token is unavailable; failed to update
+[Licensing::Client] Successfully updated license
+[Licensing::Module] Generating manual activation license file: C:\Users\ezmmr/Unity_v6000.0.48f1.alf
+[Licensing::Client] Successfully processed ALF generation request: C:\Users\ezmmr\Unity_v6000.0.48f1.alf
+[Licensing::Module] Manual activation license file successfully saved.
+Exiting without the bug reporter. Application will terminate with return code 0
