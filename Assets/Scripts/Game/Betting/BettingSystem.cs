@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Poker.Core.Config;
 
 public class BettingSystem
 {
@@ -15,7 +16,7 @@ public class BettingSystem
         this.players = players;
         this.settings = settings;
         pot = 0;
-        currentBet = settings.bigBlind;
+        currentBet = settings.BigBlind;
     }
 
     public bool PerformAction(PokerPlayerModel player, BettingAction action)

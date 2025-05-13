@@ -1,4 +1,5 @@
 using System.Collections;
+using Poker.UI;
 using UnityEngine;
 
 public class CardDealer : MonoBehaviour
