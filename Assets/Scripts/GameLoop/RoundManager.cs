@@ -3,88 +3,76 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using UnityEngine;
-using UnityEngine.AddressableAssets;
+using UnityEngine.AddressableAssets;                 //  ←  для AssetReference
 using Poker.Gameplay.Cards;
 using Poker.Gameplay.Factories;
 
 namespace Poker.GameLoop
 {
     /// <summary>
-    /// Управляет одной раздачей (Texas Hold’em) — от тасовки до объявления победителя.
+    /// Управляет одной раздачей: тасовка, раздача, борд, подсчёт победителя.
+    /// Стадиями рулит GameStateManager через публичные корутины.
     /// </summary>
     public sealed class RoundManager : MonoBehaviour
     {
-        #region Inspector
+        #region Inspector -----------------------------------------------------
 
-        [Header("Сцена")]
+        [Header("Scene refs")]
         [SerializeField] private List<PokerPlayerController> players = new();
-        [SerializeField] private TableView               tableView;
-        [SerializeField] private CardPool                cardPool;
-        [SerializeField] private AssetReference          cardPrefab;
+        [SerializeField] private TableView  tableView;
+        [SerializeField] private CardPool   cardPool;
+        [SerializeField] private AssetReference cardPrefab;   // ← ВЕРНУЛИ ПОЛЕ
 
-        [Header("Тайминги (сек)")]
-        [SerializeField] private float dealDelay  = 0.30f;
-        [SerializeField] private float boardDelay = 0.40f;
-        [SerializeField] private float handPause  = 3.00f;
+        [Header("Timings, sec")]
+        [SerializeField] private float dealDelay  = .3f;
+        [SerializeField] private float boardDelay = .4f;
 
         #endregion
 
-        private DeckManager  deck;
-        private CardFactory  factory;
-        private WaitForSeconds wd, wb, wh;
+        private DeckManager deck;
+        private CardFactory factory;
+        private WaitForSeconds wd, wb;
 
-        /// <summary>Всегда актуальный список community-карт (флоп → ривер).</summary>
-        private readonly List<CardDataSO> boardCards = new();
+        public readonly List<CardDataSO> BoardCards = new();   // community-карты
 
-        #region Life-cycle ----------------------------------------------------
+        #region Unity ---------------------------------------------------------
 
         private void Awake()
         {
-            deck    = new DeckManager();
-            factory = new CardFactory(cardPool, cardPrefab);
+            deck = new DeckManager();
+            wd   = new WaitForSeconds(dealDelay);
+            wb   = new WaitForSeconds(boardDelay);
 
-            wd = new WaitForSeconds(dealDelay);
-            wb = new WaitForSeconds(boardDelay);
-            wh = new WaitForSeconds(handPause);
-        }
-
-        private void Start() => StartCoroutine(GameLoop());
-
-        private IEnumerator GameLoop()
-        {
-            while (true)
+            // Проверяем корректность AssetReference
+            if (cardPrefab == null || !cardPrefab.RuntimeKeyIsValid())
             {
-                SetupNewHand();
-
-                yield return DealHoleCards();   // две карманные
-                yield return RevealBoard(3);    // флоп
-                yield return RevealBoard(1);    // терн
-                yield return RevealBoard(1);    // ривер
-
-                EvaluateWinners();
-
-                yield return wh;                // пауза и новая раздача
+                Debug.LogWarning(
+                    "RoundManager: Card Prefab (Addressable) не задан. " +
+                    "Будут создаваться временные заглушки-карты.");
             }
+
+            factory = new CardFactory(cardPool, cardPrefab);
         }
 
         #endregion
 
-        #region Hand flow -----------------------------------------------------
+        #region Public API (корутины) ----------------------------------------
 
-        private void SetupNewHand()
+        public IEnumerator SetupNewHandRoutine()
         {
             var all = Resources.LoadAll<CardDataSO>("Configs");
             deck.InitializeDeck(all);
             deck.Shuffle();
 
+            BoardCards.Clear();
             tableView.ResetBoard();
-            boardCards.Clear();
             foreach (var p in players) p.ResetForNewHand();
 
-            Debug.Log($"[Round] Loaded {all.Length} cards");
+            Debug.Log($"[Round] New hand → deck of {all.Length} cards ready");
+            yield break;
         }
 
-        private IEnumerator DealHoleCards()
+        public IEnumerator DealHoleCardsRoutine()
         {
             for (int r = 0; r < 2; r++)
             {
@@ -98,58 +86,53 @@ namespace Poker.GameLoop
             }
         }
 
-        private IEnumerator RevealBoard(int count)
-        {
-            for (int i = 0; i < count; i++)
-            {
-                var card = deck.DrawCard();
-                boardCards.Add(card);    // важно сохранить порядок
+        public IEnumerator RevealFlopRoutine()  => RevealBoardRoutine(3);
+        public IEnumerator RevealTurnRoutine()  => RevealBoardRoutine(1);
+        public IEnumerator RevealRiverRoutine() => RevealBoardRoutine(1);
 
-                Debug.Log($"[Board] Slot{boardCards.Count-1}: {card.rank} of {card.suit}");
-                yield return RunTask(tableView.ShowBoardCardAsync(card, factory));
-                yield return wb;
-            }
-        }
-
-        private void EvaluateWinners()
+        public List<PokerPlayerController> EvaluateWinners()
         {
             Debug.Log("[Eval] Community: " +
-                      string.Join(", ", boardCards.Select(c => $"{c.rank} {c.suit}")));
+                      string.Join(", ", BoardCards.Select(c => $"{c.rank} {c.suit}")));
 
-            foreach (var p in players)
-            {
-                var hole = p.Model.HoleCards;
-                Debug.Log($"[Eval] P#{players.IndexOf(p)+1} hole: " +
-                          string.Join(", ", hole.Select(c => $"{c.rank} {c.suit}")));
-            }
-
-            // оцениваем всех игроков
             var results = players.ToDictionary(
                 p => p,
-                p => HandEvaluator.EvaluateBestHand(p.Model.HoleCards.ToList(), boardCards)
-            );
+                p => HandEvaluator.EvaluateBestHand(p.Model.HoleCards.ToList(), BoardCards));
 
-            // находим лучшую руку
-            var best = results.Values.Aggregate((a, b) =>
-                         a.Score.CompareTo(b.Score) > 0 ? a : b);
+            var bestScore = results.Values.Aggregate((a, b) =>
+                a.Score.CompareTo(b.Score) > 0 ? a : b).Score;
 
             var winners = results
-                .Where(kv => kv.Value.Score.CompareTo(best.Score) == 0)
-                .Select(kv => kv.Key);
+                .Where(kv => kv.Value.Score.CompareTo(bestScore) == 0)
+                .Select(kv => kv.Key)
+                .ToList();
 
             foreach (var w in winners)
             {
-                var hr    = results[w];
+                var hr = results[w];
                 var combo = string.Join(", ",
                     hr.Combination.Select(c => $"{c.rank} {c.suit}"));
-
                 Debug.Log($"🏆 P#{players.IndexOf(w)+1} wins: {hr.Score.Rank} [{combo}]");
             }
+            return winners;
         }
 
         #endregion
 
-        #region Utils ---------------------------------------------------------
+        #region Helpers ------------------------------------------------------
+
+        private IEnumerator RevealBoardRoutine(int count)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                var card = deck.DrawCard();
+                BoardCards.Add(card);
+
+                Debug.Log($"[Board] Slot{BoardCards.Count-1}: {card.rank} of {card.suit}");
+                yield return tableView.ShowBoardCardAsync(card, factory);
+                yield return wb;
+            }
+        }
 
         private static IEnumerator RunTask(Task task)
         {

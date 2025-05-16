@@ -1,46 +1,55 @@
-// Assets/Scripts/GameLoop/TableView.cs
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
+using System.Collections;
 using UnityEngine;
-using Poker.Gameplay.Factories;
-using Poker.UI;
 using Poker.Gameplay.Cards;
+using Poker.Gameplay.Factories;
 
 namespace Poker.GameLoop
 {
-    /// <summary>Управляет визуалом и хранит список community-карт.</summary>
-    public sealed class TableView : MonoBehaviour
+    public class TableView : MonoBehaviour
     {
-        [SerializeField, Tooltip("5 слотов: flop0–2, turn, river")]
-        private List<Transform> boardSlots = new List<Transform>();
+        [SerializeField] private Transform   boardParent;   // 5 слотов борда
+        [SerializeField] private CardFactory fallbackFactory; // опционально через инспектор
 
-        private readonly List<CardView> _spawned = new List<CardView>();
-        private readonly List<CardDataSO> currentCards = new List<CardDataSO>();
-        /// <summary>Текущий борд (в порядке выкладки).</summary>
-        public IReadOnlyList<CardDataSO> CurrentCards => currentCards;
-
-        /// <summary>Показывает следующую карту на борде и запоминает её в currentCards.</summary>
-        public async Task ShowBoardCardAsync(CardDataSO data, CardFactory factory)
+        /* ---------- вызывается из RoundManager ---------- */
+        public IEnumerator ShowBoardCardAsync(CardDataSO data, CardFactory runtimeFactory)
         {
-            if (data == null) return;
+            var factory = runtimeFactory ?? fallbackFactory;
+            if (factory == null)
+            {
+                Debug.LogError("TableView: CardFactory не задан — карта борда не будет создана");
+                yield break;
+            }
 
-            int slotIndex = currentCards.Count;              // куда кладём эту карту
-            var view = await factory.CreateCardAsync();
-            view.transform.SetParent(boardSlots[slotIndex], false);
-            view.SetSprite(data.cardFront);
-            _spawned.Add(view);
+            var task = factory.CreateAsync(data);
+            while (!task.IsCompleted) yield return null;
+            var view = task.Result;
 
-            currentCards.Add(data);                          // теперь не забываем запомнить карту
+            if (boardParent == null)
+            {
+                Debug.LogError("TableView: boardParent не назначен");
+                yield break;
+            }
+
+            view.transform.SetParent(boardParent, false);
+
+            // разворот рубашка → лицевая сторона
+            const float duration = 0.3f;
+            view.transform.localRotation = Quaternion.Euler(0, 180, 0);
+            for (float t = 0; t < duration; t += Time.deltaTime)
+            {
+                float y = Mathf.Lerp(180f, 0f, t / duration);
+                view.transform.localRotation = Quaternion.Euler(0, y, 0);
+                yield return null;
+            }
+            view.transform.localRotation = Quaternion.identity;
         }
 
-        /// <summary>Убирает все карты с борда и чистит список.</summary>
+        /* ---------- очистка перед новой раздачей ---------- */
         public void ResetBoard()
         {
-            foreach (var v in _spawned)
-                v.gameObject.SetActive(false);
-            _spawned.Clear();
-            currentCards.Clear();                            // чистим именно здесь
+            if (boardParent == null) return;
+            foreach (Transform child in boardParent)
+                Destroy(child.gameObject);
         }
     }
 }
