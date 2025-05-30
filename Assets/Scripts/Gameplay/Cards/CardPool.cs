@@ -1,14 +1,21 @@
-using Poker.Infrastructure.Pooling;
-using Poker.UI;                 // ⬅ добавили
 using UnityEngine;
 
 namespace Poker.Gameplay.Cards
 {
     public sealed class CardPool : MonoBehaviour
     {
-        [SerializeField] private GenericObjectPool<CardView> pool;
+        [SerializeField] private MonoBehaviour poolRef;
 
-        public CardView  GetCard()          => pool.Spawn();
-        public void      ReturnCard(CardView card) => pool.Despawn(card);
+        public CardView3D Spawn()
+        {
+            var method = poolRef.GetType().GetMethod("Spawn");
+            return method?.Invoke(poolRef, null) as CardView3D;
+        }
+
+        public void Despawn(CardView3D card)
+        {
+            var method = poolRef.GetType().GetMethod("Despawn");
+            method?.Invoke(poolRef, new object[] { card });
+        }
     }
 }

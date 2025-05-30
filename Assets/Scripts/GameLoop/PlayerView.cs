@@ -1,3 +1,4 @@
+// Assets/Scripts/GameLoop/PlayerView.cs
 using System.Threading.Tasks;
 using UnityEngine;
 using Poker.Gameplay.Cards;
@@ -5,51 +6,78 @@ using Poker.Gameplay.Factories;
 
 namespace Poker.GameLoop
 {
-    [RequireComponent(typeof(Transform))]
-    public class PlayerView : MonoBehaviour
+    /// <summary>
+    /// Отвечает только за клиентский визуал двух карманных карт.
+    /// cardSlots[0] — первая (левая) карта, cardSlots[1] — вторая (правая).
+    /// </summary>
+    public sealed class PlayerView : MonoBehaviour
     {
-        [SerializeField] private Transform   holeCardParent;
-        [SerializeField] private CardFactory cardFactory;      // резервный, можно задавать в инспекторе
+        [Tooltip("CardSlot_0 и CardSlot_1 внутри HandRoot")]
+        [SerializeField] private Transform[] cardSlots = new Transform[2];
 
-        /* ---------- вызовы из PokerPlayerController ---------- */
+        [Tooltip("Фабрика, если не передаётся извне")]
+        [SerializeField] private CardFactory cardFactory;
+
+        private void Awake()
+        {
+            if (cardSlots is { Length: 2 } == false ||
+                cardSlots[0] == null || cardSlots[1] == null)
+            {
+                Debug.LogError(
+                    "PlayerView: cardSlots не заданы! " +
+                    "Укажите оба CardSlot объекта в инспекторе.");
+            }
+        }
 
         /// <summary>
-        /// Асинхронно создаёт визуал карты, прикрепляет к руке игрока
-        /// и ставит её на позицию <paramref name="handIndex"/> (0 — левая, 1 — правая).
+        /// Создаёт карту и ставит в нужный слот. <paramref name="handIndex"/> ∈ {0,1}.
         /// </summary>
         public async Task ShowCardAsync(CardDataSO card, int handIndex, CardFactory externalFactory)
         {
-            var factory = externalFactory ?? cardFactory;
-            if (factory == null)
+            if (handIndex is < 0 or > 1)
             {
-                Debug.LogError("PlayerView: CardFactory == null, не могу создать карту.");
+                Debug.LogError($"PlayerView: неверный handIndex={handIndex}");
                 return;
             }
 
-            var view = await factory.CreateAsync(card);
-            view.transform.SetParent(holeCardParent, false);
+            var slot = cardSlots[handIndex];
+            if (slot == null)
+            {
+                Debug.LogError("PlayerView: cardSlot == null, карта не будет создана.");
+                return;
+            }
 
-            // простая раскладка: горизонтальный сдвиг ±0.3 м
-            float offset = 0.3f * (handIndex == 0 ? -1 : 1);
-            view.transform.localPosition = new Vector3(offset, 0f, 0f);
-            view.transform.localRotation = Quaternion.Euler(0, 180, 0); // рубашкой вверх
+            var factory = externalFactory ?? cardFactory;
+            if (factory == null)
+            {
+                Debug.LogError("PlayerView: CardFactory == null, карта не будет создана.");
+                return;
+            }
 
-            // анимация переворота
+            // Фабрика сама привяжет карту к slot (worldPositionStays = false)
+            var view = await factory.CreateAsync(card, slot);
+            if (view == null) return;
+
+            // Изначально рубашкой вверх
+            view.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
+
+            // Плавный переворот
             const float dur = 0.25f;
             for (float t = 0; t < dur; t += Time.deltaTime)
             {
-                float y = Mathf.Lerp(180, 0, t / dur);
-                view.transform.localRotation = Quaternion.Euler(0, y, 0);
+                float y = Mathf.Lerp(180f, 0f, t / dur);
+                view.transform.localRotation = Quaternion.Euler(0f, y, 0f);
                 await Task.Yield();
             }
             view.transform.localRotation = Quaternion.identity;
         }
 
-        /// <summary>Очищает руку перед новой раздачей.</summary>
+        /// <summary>Удаляет все дочерние GO из обоих слотов.</summary>
         public void ResetView()
         {
-            foreach (Transform child in holeCardParent)
-                Destroy(child.gameObject);
+            foreach (var s in cardSlots)
+                if (s != null)
+                    foreach (Transform c in s) Destroy(c.gameObject);
         }
     }
 }

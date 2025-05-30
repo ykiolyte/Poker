@@ -2,24 +2,17 @@ using System.Reflection;
 using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
-using UnityEngine.ResourceManagement.AsyncOperations;
-using Poker.Gameplay.Cards;
-using Poker.UI;
 
 namespace Poker.Gameplay.Factories
 {
     /// <summary>
-    /// Генерирует визуальные карточки.
-    /// • Пул объектов (любого типа) — ищем методом TryGet(out CardView) через рефлексию.
-    /// • Если задан префаб Addressables — Instantiate.
-    /// • Иначе создаём заглушку.
-    /// Для установки данных карты ищем публичный/приватный метод Initialize(CardDataSO)
-    /// или SetData(CardDataSO) через рефлексию.
+    /// Генерирует визуальные карты, поддерживает пул и Addressables-префаб.
+    /// Теперь умеет сразу привязывать к родителю.
     /// </summary>
     public sealed class CardFactory
     {
-        private readonly object     pool;    // можно передать любой пул
-        private readonly GameObject prefab;  // может быть null
+        private readonly object pool;
+        private readonly GameObject prefab;
 
         public CardFactory(object pool, AssetReference cardPrefabRef)
         {
@@ -32,73 +25,91 @@ namespace Poker.Gameplay.Factories
                 if (prefab == null)
                     Debug.LogError("CardFactory: не удалось загрузить префаб карты через Addressables.");
             }
-            else
-            {
-                Debug.LogWarning("CardFactory: AssetReference не задан или некорректен; используем только пул/заглушки.");
-            }
         }
 
-        /// <summary>Синхронное создание для редактора.</summary>
-        public CardView Create(CardDataSO data) => CreateInternal(data);
+        /* ---------- ПУБЛИЧНЫЙ API ---------- */
 
-        /// <summary>Асинхронное создание для корутин.</summary>
-        public async Task<CardView> CreateAsync(CardDataSO data)
+        public CardView3D Create(CardDataSO data) => CreateInternal(data);
+
+        public async Task<CardView3D> CreateAsync(CardDataSO data)
         {
             var view = CreateInternal(data);
             await Task.Yield();
             return view;
         }
 
-        private CardView CreateInternal(CardDataSO data)
+        public CardView3D Create(CardDataSO data, Transform parent)
+        {
+            var view = CreateInternal(data);
+            if (view != null && parent != null)
+                view.transform.SetParent(parent, worldPositionStays: false);
+            return view;
+        }
+
+        public async Task<CardView3D> CreateAsync(CardDataSO data, Transform parent)
+        {
+            var view = CreateInternal(data);
+            if (view != null && parent != null)
+                view.transform.SetParent(parent, worldPositionStays: false);
+
+            await Task.Yield();
+            return view;
+        }
+
+        /* ---------- ВНУТРЕННЯЯ ЛОГИКА ---------- */
+
+        private CardView3D CreateInternal(CardDataSO data)
         {
             var view = SpawnView();
             InitView(view, data);
             return view;
         }
 
-        private CardView SpawnView()
+        private CardView3D SpawnView()
         {
-            // 1) Пытаемся взять из пула: ищем метод TryGet(out CardView)
+            // 1) попытка взять из пула
             if (pool != null)
             {
-                var mi = pool.GetType().GetMethod(
+                var tryGet = pool.GetType().GetMethod(
                     "TryGet",
                     BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
                     null,
-                    new[] { typeof(CardView).MakeByRefType() },
+                    new[] { typeof(CardView3D).MakeByRefType() },
                     null);
 
-                if (mi != null)
+                if (tryGet != null)
                 {
                     var args = new object[] { null };
-                    bool ok = (bool)mi.Invoke(pool, args);
-                    if (ok && args[0] is CardView cv)
-                        return cv;
+                    bool ok = (bool)tryGet.Invoke(pool, args);
+                    if (ok && args[0] is CardView3D cv) return cv;
                 }
             }
 
-            // 2) Если есть загруженный префаб — Instantiate
+            // 2) Instantiate префаба
             if (prefab != null)
-                return Object.Instantiate(prefab).GetComponent<CardView>();
+            {
+                var go = Object.Instantiate(prefab);
+                var cv = go.GetComponent<CardView3D>();
+                if (cv != null) return cv;
 
-            // 3) Fallback: новая заглушка, чтобы проект не падал
-            var go = new GameObject("CardView (fallback)");
-            return go.AddComponent<CardView>();
+                Debug.LogWarning("CardFactory: Префаб не содержит CardView3D — fallback.");
+            }
+
+            // 3) Заглушка
+            var fallback = new GameObject("CardView3D (fallback)");
+            return fallback.AddComponent<CardView3D>();
         }
 
-        private static void InitView(CardView view, CardDataSO data)
+        private static void InitView(Component view, CardDataSO data)
         {
             if (view == null || data == null) return;
 
             var type = view.GetType();
 
-            // ищем Initialize(CardDataSO)
-            var mInit = type.GetMethod(
-                "Initialize",
+            // 1) Метод Initialize(CardDataSO)
+            var mInit = type.GetMethod("Initialize",
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
-                null,
-                new[] { typeof(CardDataSO) },
-                null);
+                null, new[] { typeof(CardDataSO) }, null);
 
             if (mInit != null)
             {
@@ -106,16 +117,12 @@ namespace Poker.Gameplay.Factories
                 return;
             }
 
-            // ищем SetData(CardDataSO)
-            var mSet = type.GetMethod(
-                "SetData",
+            // 2) Метод SetData(CardDataSO)
+            var mSet = type.GetMethod("SetData",
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
-                null,
-                new[] { typeof(CardDataSO) },
-                null);
+                null, new[] { typeof(CardDataSO) }, null);
 
-            if (mSet != null)
-                mSet.Invoke(view, new object[] { data });
+            mSet?.Invoke(view, new object[] { data });
         }
     }
 }

@@ -27,6 +27,11 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 083cf071fda2f9e4abdaab2d19d79a3f
+    m_Address: Assets/Prefabs/Card3D.prefab
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
   m_ReadOnly: 0
   m_Settings: {fileID: 11400000, guid: 1357a9f9cee4b744bb5eafb95b1590b7, type: 2}
   m_SchemaSet:

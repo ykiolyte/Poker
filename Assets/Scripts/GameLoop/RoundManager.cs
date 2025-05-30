@@ -18,7 +18,9 @@ namespace Poker.GameLoop
         #region Inspector -----------------------------------------------------
 
         [Header("Scene refs")]
-        [SerializeField] private List<PokerPlayerController> players = new();
+        
+        private List<PokerPlayerController> players;
+
         [SerializeField] private TableView  tableView;
         [SerializeField] private CardPool   cardPool;
         [SerializeField] private AssetReference cardPrefab;   // ← ВЕРНУЛИ ПОЛЕ
@@ -43,16 +45,16 @@ namespace Poker.GameLoop
             wd   = new WaitForSeconds(dealDelay);
             wb   = new WaitForSeconds(boardDelay);
 
-            // Проверяем корректность AssetReference
+            players = FindObjectsOfType<PokerPlayerController>().ToList(); // теперь находит Player character
+
             if (cardPrefab == null || !cardPrefab.RuntimeKeyIsValid())
             {
-                Debug.LogWarning(
-                    "RoundManager: Card Prefab (Addressable) не задан. " +
-                    "Будут создаваться временные заглушки-карты.");
+                Debug.LogWarning("RoundManager: Card Prefab (Addressable) не задан.");
             }
 
             factory = new CardFactory(cardPool, cardPrefab);
         }
+
 
         #endregion
 
@@ -74,17 +76,32 @@ namespace Poker.GameLoop
 
         public IEnumerator DealHoleCardsRoutine()
         {
-            for (int r = 0; r < 2; r++)
+            for (int cardIndex = 0; cardIndex < 2; cardIndex++)
             {
-                foreach (var p in players)
+                foreach (var player in players)
                 {
-                    var card = deck.DrawCard();
-                    Debug.Log($"[Deal] P#{players.IndexOf(p)+1} gets {card.rank} of {card.suit}");
-                    yield return RunTask(p.DealHoleCardAsync(card, factory));
+                    var cardData = deck.DrawCard();
+                    var cardView = factory.Create(cardData);
+                    cardView.Initialize(cardData);
+
+                    var anchor = player.GetCardAnchor(isLeftHand: false);
+
+                    cardView.transform.SetPositionAndRotation(anchor.position, anchor.rotation);
+                    cardView.transform.SetParent(anchor, worldPositionStays: true);
+
+                    // ВЕЕРНАЯ РАСКЛАДКА
+                    int totalCardsInHand = 2; // если ты знаешь заранее
+                    CardFanUtility.ApplyFanArcOffset(cardView.transform, cardIndex, totalCardsInHand);
+
+
+                    player.Model.DealCard(cardData);
                     yield return wd;
                 }
             }
         }
+
+
+
 
         public IEnumerator RevealFlopRoutine()  => RevealBoardRoutine(3);
         public IEnumerator RevealTurnRoutine()  => RevealBoardRoutine(1);
