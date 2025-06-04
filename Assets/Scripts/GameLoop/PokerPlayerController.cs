@@ -1,57 +1,147 @@
 // Assets/Scripts/GameLoop/PokerPlayerController.cs
-using System.Threading.Tasks;
+using System;
 using UnityEngine;
-using Poker.Gameplay.Factories;
-using Poker.Gameplay.Cards;
+using Poker.Domain.Betting;
+using Poker.Game.Betting;
+using Poker.UI;                       // ← новый using
 
 namespace Poker.GameLoop
 {
-    [RequireComponent(typeof(PlayerView))]
-
+    /// <summary>
+    /// Контроллер игрока — мост между Domain-логикой и представлением (UI, анимации).
+    /// </summary>
     public sealed class PokerPlayerController : MonoBehaviour
     {
-        [SerializeField] private int startStack = 1000;
+        // ─────────────────────── локальность ───────────────────────
+        private bool _isLocalPlayer;
+        public  bool IsLocalPlayer => _isLocalPlayer;
 
-        [Header("Card Fan Settings")]
-        [SerializeField] private float cardSpacing = 0.03f;
-        [SerializeField] private float cardAngle = 5f;
+        [Header("Model & Anchors")]
+        [SerializeField] private Transform leftCardAnchor;
+        [SerializeField] private Transform rightCardAnchor;
 
         public PokerPlayerModel Model { get; private set; }
-        private PlayerView view;
 
+        /// <summary>Ссылка на UI-презентер (назначается Binder’ом).</summary>
+        private PlayerUIController _ui;
+
+        /// <summary>Последнее действие игрока в текущем betting-раунде.</summary>
+        public BettingAction LastAction { get; internal set; }
+
+        /// <summary>Уже сходил в этом раунде?</summary>
+        public bool HasActedThisRound { get; private set; }
+
+        //────────────────────────── Mono ──────────────────────────
         private void Awake()
         {
-            view = GetComponent<PlayerView>();
-            Model = new PokerPlayerModel(GetInstanceID(), startStack);
+            // если Binder добавил компонент позже, всё равно найдём
+            _ui = GetComponent<PlayerUIController>();
         }
 
-        public async Task DealHoleCardAsync(CardDataSO card, CardFactory factory)
+        //────────────────────────── API ────────────────────────────
+        public void InjectModel(PokerPlayerModel model) => Model = model;
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        [ContextMenu("Force Local Player")]
+#endif
+        public void SetAsLocalPlayer()
         {
-            Model.DealCard(card);
-            await view.ShowCardAsync(card, Model.HoleCards.Count - 1, factory);
+            _isLocalPlayer = true;
+            // может случиться, что UI добавлен уже после Awake
+            _ui ??= GetComponent<PlayerUIController>();
+        }
+
+        /// <summary>
+        /// Запрашивается BettingStateMachine, когда приходит ход игрока.
+        /// Локальный игрок → показываем UI, ждём решения.
+        /// Бот/удалённый игрок → auto-решение как раньше.
+        /// </summary>
+        public void RequestBet(int tableBet, Action onDecided)
+        {
+            if (_isLocalPlayer && _ui != null)
+            {
+                _ui.RequestAction(tableBet, Model.Stack, action =>
+                {
+                    ApplyAction(action, tableBet);
+                    HasActedThisRound = true;
+                    onDecided?.Invoke();
+                });
+                return; // ждём взаимодействия пользователя
+            }
+
+            // 💡 не локальный — instant decision
+            var auto = AutoDecision(tableBet);
+            ApplyAction(auto, tableBet);
+            HasActedThisRound = true;
+            onDecided?.Invoke();
+        }
+
+        /// <summary>Авто-Fold, когда таймер истёк.</summary>
+        public void ForceFold()
+        {
+            Model.Fold();
+            LastAction = new BettingAction(BettingActionType.Fold);
+            HasActedThisRound = true;
         }
 
         public void ResetForNewHand()
         {
-            Model.ResetRound();
-            view.ResetView();
+            Model.ResetForHand();
+            HasActedThisRound = false;
+            LastAction = null;
         }
 
-        public Transform GetCardAnchor(bool isLeftHand = false)
+        public Transform GetCardAnchor(bool isLeftHand) =>
+            isLeftHand ? leftCardAnchor : rightCardAnchor;
+
+        //────────────────────────── helpers ─────────────────────────
+
+        private BettingAction AutoDecision(int tableBet)
         {
-            return GetComponent<CardAnchorProvider>()?.GetAnchor(isLeftHand);
+            int diff = tableBet - Model.CurrentBet;
+
+            if (diff <= 0)
+                return new BettingAction(BettingActionType.Check);
+
+            if (Model.Stack >= diff)
+                return new BettingAction(BettingActionType.Call, diff);
+
+            return new BettingAction(BettingActionType.Fold);
         }
 
-        /// <summary>Настраиваемая раскладка карт веером.</summary>
-        public void ApplyFanOffset(Transform cardTransform, int index)
+       private void ApplyAction(BettingAction action, int tableBet)
         {
-            float offsetX = (index - 0.5f) * cardSpacing;
-            float rotationY = (index - 0.5f) * cardAngle;
+            int betAmount = 0;
 
-            cardTransform.localPosition += new Vector3(offsetX, 0f, 0f);
-            cardTransform.localRotation = Quaternion.Euler(0f, rotationY, 0f);
+            switch (action.ActionType)
+            {
+                case BettingActionType.Check:
+                    Model.TryBet(0);
+                    break;
+
+                case BettingActionType.Call:
+                    betAmount = tableBet - Model.CurrentBet;
+                    Model.TryBet(betAmount);
+                    break;
+
+                case BettingActionType.Raise:
+                    Model.TryBet(action.Amount);
+                    betAmount = action.Amount;
+                    break;
+
+                case BettingActionType.AllIn:
+                    betAmount = Model.Stack;
+                    Model.TryBet(betAmount);
+                    break;
+
+                case BettingActionType.Fold:
+                    Model.Fold();
+                    break;
+            }
+
+            // фиксируем правильное действие
+            LastAction = new BettingAction(action.ActionType, betAmount);
         }
 
     }
-    
 }

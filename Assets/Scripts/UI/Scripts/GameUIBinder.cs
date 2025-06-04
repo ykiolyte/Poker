@@ -1,37 +1,28 @@
 using UnityEngine;
-using UnityEngine.UI;
+using Poker.UI;
+using Poker.GameLoop;
 
-public class GameUIBinder : MonoBehaviour
+namespace Poker.Infrastructure
 {
-    [SerializeField] private GameUIController controller;
-
-    private void Start()
+    public sealed class GameUIBinder : MonoBehaviour
     {
-        controller.raiseButton.onClick.AddListener(OnRaise);
-        controller.callButton.onClick.AddListener(OnCall);
-        controller.foldButton.onClick.AddListener(OnFold);
-        controller.checkButton.onClick.AddListener(OnCheck);
-        controller.allInButton.onClick.AddListener(OnAllIn);
-    }
+        [SerializeField] private GameUIController canvasController;
+        [SerializeField] private PokerPlayerController localPlayer;
 
-    private void OnRaise()
-    {
-        Debug.Log("Raise button clicked");
-        controller.raiseInputField.gameObject.SetActive(true);
-        controller.confirmRaiseButton.gameObject.SetActive(true);
-    }
-
-    private void OnConfirmRaise()
-    {
-        int raiseValue;
-        if (int.TryParse(controller.raiseInputField.text, out raiseValue))
+        private void Awake()
         {
-            Debug.Log($"Confirmed Raise: {raiseValue}");
+            if (canvasController == null || localPlayer == null)
+            {
+                Debug.LogError("[GameUIBinder] canvasController или localPlayer не назначен");
+                enabled = false;
+                return;
+            }
+
+            var presenter = localPlayer.GetComponent<PlayerUIController>()
+                         ?? localPlayer.gameObject.AddComponent<PlayerUIController>();
+
+            presenter.Initialize(canvasController);
+            localPlayer.SetAsLocalPlayer();
         }
     }
-
-    private void OnCall() => Debug.Log("Call button clicked");
-    private void OnFold() => Debug.Log("Fold button clicked");
-    private void OnCheck() => Debug.Log("Check button clicked");
-    private void OnAllIn() => Debug.Log("All-in button clicked");
 }

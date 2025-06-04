@@ -1,21 +1,24 @@
-public enum BettingActionType
+namespace Poker.Game.Betting
 {
-    None,
-    Check,
-    Call,
-    Raise,
-    AllIn,
-    Fold
-}
-
-public class BettingAction
-{
-    public BettingActionType ActionType { get; }
-    public int Amount { get; }
-
-    public BettingAction(BettingActionType type, int amount = 0)
+    public enum BettingActionType
     {
-        ActionType = type;
-        Amount = amount;
+        None,
+        Check,
+        Call,
+        Raise,
+        AllIn,
+        Fold
+    }
+
+    public class BettingAction
+    {
+        public BettingActionType ActionType { get; }
+        public int Amount { get; }
+
+        public BettingAction(BettingActionType type, int amount = 0)
+        {
+            ActionType = type;
+            Amount = amount;
+        }
     }
 }

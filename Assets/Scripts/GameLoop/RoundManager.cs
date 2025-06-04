@@ -42,10 +42,17 @@ namespace Poker.GameLoop
         private void Awake()
         {
             deck = new DeckManager();
-            wd   = new WaitForSeconds(dealDelay);
-            wb   = new WaitForSeconds(boardDelay);
+            wd = new WaitForSeconds(dealDelay);
+            wb = new WaitForSeconds(boardDelay);
 
-            players = FindObjectsOfType<PokerPlayerController>().ToList(); // теперь находит Player character
+            players = FindObjectsByType<PokerPlayerController>(FindObjectsSortMode.None).ToList();
+
+            // Инициализация моделей для каждого игрока
+            for (int i = 0; i < players.Count; i++)
+            {
+                var model = new PokerPlayerModel(id: i, stack: 1000);
+                players[i].InjectModel(model);
+            }
 
             if (cardPrefab == null || !cardPrefab.RuntimeKeyIsValid())
             {
@@ -53,7 +60,14 @@ namespace Poker.GameLoop
             }
 
             factory = new CardFactory(cardPool, cardPrefab);
+
+            players = FindObjectsByType<PokerPlayerController>(FindObjectsSortMode.None).ToList();
+            
+            Debug.Log($"[Init] Found {players.Count} players");
+
+
         }
+
 
 
         #endregion
@@ -81,6 +95,7 @@ namespace Poker.GameLoop
                 foreach (var player in players)
                 {
                     var cardData = deck.DrawCard();
+                    Debug.Log($"[Deal] P#{players.IndexOf(player)+1} gets {cardData.rank} {cardData.suit}");
                     var cardView = factory.Create(cardData);
                     cardView.Initialize(cardData);
 
