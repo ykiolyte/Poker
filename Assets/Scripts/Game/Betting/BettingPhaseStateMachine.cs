@@ -8,13 +8,10 @@ using Poker.GameLoop;
 using Poker.Domain.Betting;
 using Poker.UI;
 using Poker.Gameplay;
+using Poker.Core.Config;
 
 namespace Poker.Game.Betting
 {
-    /// <summary>
-    /// FSM одного betting-раунда (используется на всех улицах).
-    /// Обрабатывает SB/BB (только preflop), Raise/Call/Check/Fold/All-in.
-    /// </summary>
     public sealed class BettingPhaseStateMachine
     {
         public event Action<PokerPlayerModel, BettingAction> PlayerActed;
@@ -26,9 +23,9 @@ namespace Poker.Game.Betting
         private readonly Street street;
         private readonly BettingTimerService timer;
         private readonly GameUIController ui;
+        private readonly GameSettingsSO settings;
 
         private readonly List<PlayerBet> actions = new();
-
         private int currentBet;
         private bool waiting;
         private readonly float turnSeconds = 15f;
@@ -39,7 +36,8 @@ namespace Poker.Game.Betting
             int bigBlind,
             Street street,
             BettingTimerService timer,
-            GameUIController uiController)
+            GameUIController uiController,
+            GameSettingsSO settings)
         {
             this.controllers = controllers;
             this.smallBlind  = smallBlind;
@@ -47,12 +45,13 @@ namespace Poker.Game.Betting
             this.street      = street;
             this.timer       = timer;
             this.ui          = uiController;
+            this.settings    = settings;
         }
 
         public IEnumerator Execute()
         {
             if (street == Street.Preflop)
-                PostBlinds();
+                currentBet = settings.BigBlind;
 
             int idx = 0;
             while (ActivePlayers() > 1 && !EveryoneCalled())
@@ -69,32 +68,14 @@ namespace Poker.Game.Betting
                     if (action.ActionType == BettingActionType.Raise)
                     {
                         currentBet = action.Amount;
-                        ui.SetTableBet(currentBet); // ← теперь обновляет UI при Raise
+                        ui.SetTableBet(currentBet);
                     }
-
                 }
 
                 idx = (idx + 1) % controllers.Count;
             }
 
             RoundCompleted?.Invoke(actions);
-        }
-
-        private void PostBlinds()
-        {
-            controllers[0].Model.TryBet(smallBlind);
-            var sbAction = new BettingAction(BettingActionType.Raise, smallBlind);
-            controllers[0].LastAction = sbAction;
-            actions.Add(new PlayerBet(controllers[0].Model.Id, ConvertToBet(sbAction)));
-
-            controllers[1].Model.TryBet(bigBlind);
-            var bbAction = new BettingAction(BettingActionType.Raise, bigBlind);
-            controllers[1].LastAction = bbAction;
-            actions.Add(new PlayerBet(controllers[1].Model.Id, ConvertToBet(bbAction)));
-
-            currentBet = bigBlind;
-
-            ui.SetTableBet(currentBet);
         }
 
         private IEnumerator TakeTurn(PokerPlayerController c)
@@ -113,10 +94,8 @@ namespace Poker.Game.Betting
                     c.LastAction = new BettingAction(BettingActionType.Check);
                 else
                     c.ForceFold();
-
                 waiting = false;
             };
-
 
             int diff = currentBet - c.Model.CurrentBet;
 
@@ -142,22 +121,14 @@ namespace Poker.Game.Betting
             timer.StopTimer();
             c.GetComponent<PlayerHighlightView>()?.SetHighlight(false);
 
-            void OnTick(float t01)
-            {
-                ui.UpdateTurnTimer(t01);
-            }
+            void OnTick(float t01) => ui.UpdateTurnTimer(t01);
         }
 
         private bool EveryoneCalled()
         {
             foreach (var c in controllers)
-            {
-                if (!c.Model.HasFolded &&
-                    !c.Model.IsAllIn &&
-                    c.Model.CurrentBet < currentBet)
+                if (!c.Model.HasFolded && !c.Model.IsAllIn && c.Model.CurrentBet < currentBet)
                     return false;
-            }
-
             return true;
         }
 
@@ -165,22 +136,18 @@ namespace Poker.Game.Betting
         {
             int count = 0;
             foreach (var c in controllers)
-                if (!c.Model.HasFolded)
-                    count++;
+                if (!c.Model.HasFolded) count++;
             return count;
         }
 
-        private Bet ConvertToBet(BettingAction action)
+        private Bet ConvertToBet(BettingAction action) => action.ActionType switch
         {
-            return action.ActionType switch
-            {
-                BettingActionType.Check => new Bet(BetAction.Check),
-                BettingActionType.Call  => new Bet(BetAction.Call,  action.Amount),
-                BettingActionType.Raise => new Bet(BetAction.Raise, action.Amount),
-                BettingActionType.Fold  => new Bet(BetAction.Fold),
-                BettingActionType.AllIn => new Bet(BetAction.Raise, action.Amount),
-                _ => throw new ArgumentOutOfRangeException(nameof(action), $"Unsupported action {action.ActionType}")
-            };
-        }
+            BettingActionType.Check => new Bet(BetAction.Check),
+            BettingActionType.Call  => new Bet(BetAction.Call,  action.Amount),
+            BettingActionType.Raise => new Bet(BetAction.Raise, action.Amount),
+            BettingActionType.Fold  => new Bet(BetAction.Fold),
+            BettingActionType.AllIn => new Bet(BetAction.Raise, action.Amount),
+            _ => throw new ArgumentOutOfRangeException()
+        };
     }
 }

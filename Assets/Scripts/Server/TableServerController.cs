@@ -1,32 +1,93 @@
 using System.Collections.Generic;
+using System.Linq;
 using Unity.Netcode;
+using UnityEngine;
+using Poker.Core.Config;
 using Poker.Domain.Betting;
+using Poker.GameLoop;
 
 namespace Poker.Server
 {
-    /// <summary>
-    /// Headless-сервер или локальный хост: хранит ставки текущего раунда.
-    /// Полноценная очередь действий (SB/BB, Raise-loop) появится в v1.
-    /// </summary>
+    [RequireComponent(typeof(NetworkObject))]
     public sealed class TableServerController : NetworkBehaviour
     {
-        private readonly List<PlayerBet> _currentRoundBets = new();
+        [SerializeField] private GameSettingsSO gameSettings;
 
-        /// <summary>Список ставок текущего betting-раунда.</summary>
-        public IReadOnlyList<PlayerBet> CurrentRoundBets => _currentRoundBets;
+        private readonly List<PlayerBet> _currentRound = new();
+        private readonly PotManager      _pots         = new();  // NEW
 
-        /// <summary>
-        /// Регистрирует ставку от клиента/хоста. Пока сохраняем только факт;
-        /// позже тут будет проверка стека, таймаутов и перехода улиц.
-        /// </summary>
+        public PotManager Pots => _pots;
+        public IReadOnlyList<PlayerBet> CurrentRoundBets => _currentRound;
+
+        /* ---------- ставки / блайнды ---------- */
+
         [ServerRpc(RequireOwnership = false)]
-        public void RecordBetServerRpc(int playerId, BetAction action, int amount)
+        public void PostBlindsServerRpc(int sbSeat, int bbSeat)
         {
-            var bet = new Bet(action, amount);
-            _currentRoundBets.Add(new PlayerBet(playerId, bet));
+            _pots.AddBet(FindModel(sbSeat), gameSettings.SmallBlind);
+            _pots.AddBet(FindModel(bbSeat), gameSettings.BigBlind);
+            // (Broadcast клиенты — оставил прежний)
         }
 
-        /// <summary>Очищает журнал ставок при начале новой улицы.</summary>
-        public void BeginNewRound() => _currentRoundBets.Clear();
+        [ServerRpc(RequireOwnership = false)]
+        public void RecordBetServerRpc(int seat, BetAction act, int amount)
+        {
+            var p = FindModel(seat);
+            if (p == null) return;
+
+            _currentRound.Add(new PlayerBet(seat, new Bet(act, amount)));
+            if (act is BetAction.Call or BetAction.Raise)
+                _pots.AddBet(p, amount);
+        }
+
+        public void BeginNewRound()
+        {
+            _pots.Reset();
+            _currentRound.Clear();
+        }
+
+        /* ---------- SHOWDOWN --------------- */
+
+        public void FinishHandShowdown()
+        {
+            if (!IsServer) return;
+
+            var handResults = CollectHands();
+            var payout      = _pots.Distribute(handResults);
+
+            foreach (var kv in payout)
+                FindModel(kv.Key)?.AddChips(kv.Value);
+
+            WinningsClientRpc(payout.Keys.ToArray(), payout.Values.ToArray());
+        }
+
+        [ClientRpc]
+        void WinningsClientRpc(int[] seats, int[] amounts)
+        {
+            for (int i = 0; i < seats.Length; i++)
+            {
+                foreach (var l in FindObjectsByType<BettingClientListener>(FindObjectsSortMode.None))
+                    l.ShowWinner(seats[i], amounts[i]);
+            }
+        }
+
+        /* ---------- helpers ---------------- */
+
+        private Dictionary<int,HandResult> CollectHands()
+        {
+            var rm = FindFirstObjectByType<RoundManager>();
+            var map = new Dictionary<int,HandResult>();
+
+            foreach (var pc in FindObjectsByType<PokerPlayerController>(FindObjectsSortMode.None))
+                if (!pc.Model.HasFolded)
+                    map[pc.Model.Id] = HandEvaluator.EvaluateBestHand(
+                        pc.Model.HoleCards.ToList(), rm.BoardCards);
+
+            return map;
+        }
+
+        private PokerPlayerModel FindModel(int seat) =>
+            FindObjectsByType<PokerPlayerController>(FindObjectsSortMode.None)
+                .FirstOrDefault(p => p.Model.Id == seat)?.Model;
     }
 }

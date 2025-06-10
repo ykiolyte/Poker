@@ -1,9 +1,10 @@
+// Assets/Scripts/GameLoop/RoundManager.cs
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using UnityEngine;
-using UnityEngine.AddressableAssets;                 //  ←  для AssetReference
+using UnityEngine.AddressableAssets;
 using Poker.Gameplay.Cards;
 using Poker.Gameplay.Factories;
 
@@ -11,19 +12,18 @@ namespace Poker.GameLoop
 {
     /// <summary>
     /// Управляет одной раздачей: тасовка, раздача, борд, подсчёт победителя.
-    /// Стадиями рулит GameStateManager через публичные корутины.
+    /// Добавлен метод ClearTable() для удаления предыдущих карт.
     /// </summary>
     public sealed class RoundManager : MonoBehaviour
     {
         #region Inspector -----------------------------------------------------
 
         [Header("Scene refs")]
-        
         private List<PokerPlayerController> players;
 
         [SerializeField] private TableView  tableView;
         [SerializeField] private CardPool   cardPool;
-        [SerializeField] private AssetReference cardPrefab;   // ← ВЕРНУЛИ ПОЛЕ
+        [SerializeField] private AssetReference cardPrefab;
 
         [Header("Timings, sec")]
         [SerializeField] private float dealDelay  = .3f;
@@ -39,52 +39,48 @@ namespace Poker.GameLoop
 
         #region Unity ---------------------------------------------------------
 
-        private void Awake()
+        void Awake()
         {
             deck = new DeckManager();
-            wd = new WaitForSeconds(dealDelay);
-            wb = new WaitForSeconds(boardDelay);
+            wd   = new WaitForSeconds(dealDelay);
+            wb   = new WaitForSeconds(boardDelay);
 
             players = FindObjectsByType<PokerPlayerController>(FindObjectsSortMode.None).ToList();
 
-            // Инициализация моделей для каждого игрока
+            // инициализация моделей
             for (int i = 0; i < players.Count; i++)
+                players[i].InjectModel(new PokerPlayerModel(i, 1000));
+
+            if (cardPrefab != null && cardPrefab.RuntimeKeyIsValid())
             {
-                var model = new PokerPlayerModel(id: i, stack: 1000);
-                players[i].InjectModel(model);
+                factory = new CardFactory(cardPool, cardPrefab);
+            }
+            else
+            {
+                Debug.LogWarning("[RoundManager] Card prefab не назначен – будут fallback-карты");
+                factory = new CardFactory(cardPool, null);
             }
 
-            if (cardPrefab == null || !cardPrefab.RuntimeKeyIsValid())
-            {
-                Debug.LogWarning("RoundManager: Card Prefab (Addressable) не задан.");
-            }
-
-            factory = new CardFactory(cardPool, cardPrefab);
-
-            players = FindObjectsByType<PokerPlayerController>(FindObjectsSortMode.None).ToList();
-            
             Debug.Log($"[Init] Found {players.Count} players");
-
-
         }
-
-
 
         #endregion
 
         #region Public API (корутины) ----------------------------------------
 
+        /// <summary>Подготовка новой раздачи: сброс стола и тасование новой колоды.</summary>
         public IEnumerator SetupNewHandRoutine()
         {
-            var all = Resources.LoadAll<CardDataSO>("Configs");
-            deck.InitializeDeck(all);
+            ClearTable();
+
+            var allCards = Resources.LoadAll<CardDataSO>("Configs");
+            deck.InitializeDeck(allCards);
             deck.Shuffle();
 
             BoardCards.Clear();
-            tableView.ResetBoard();
             foreach (var p in players) p.ResetForNewHand();
 
-            Debug.Log($"[Round] New hand → deck of {all.Length} cards ready");
+            Debug.Log($"[Round] New hand → deck of {allCards.Length} cards ready");
             yield break;
         }
 
@@ -95,28 +91,20 @@ namespace Poker.GameLoop
                 foreach (var player in players)
                 {
                     var cardData = deck.DrawCard();
-                    Debug.Log($"[Deal] P#{players.IndexOf(player)+1} gets {cardData.rank} {cardData.suit}");
                     var cardView = factory.Create(cardData);
-                    cardView.Initialize(cardData);
 
-                    var anchor = player.GetCardAnchor(isLeftHand: false);
-
+                    var anchor = player.GetCardAnchor(isLeftHand: cardIndex == 0);
                     cardView.transform.SetPositionAndRotation(anchor.position, anchor.rotation);
                     cardView.transform.SetParent(anchor, worldPositionStays: true);
 
-                    // ВЕЕРНАЯ РАСКЛАДКА
-                    int totalCardsInHand = 2; // если ты знаешь заранее
-                    CardFanUtility.ApplyFanArcOffset(cardView.transform, cardIndex, totalCardsInHand);
-
+                    // веерная раскладка
+                    CardFanUtility.ApplyFanArcOffset(cardView.transform, cardIndex, 2);
 
                     player.Model.DealCard(cardData);
                     yield return wd;
                 }
             }
         }
-
-
-
 
         public IEnumerator RevealFlopRoutine()  => RevealBoardRoutine(3);
         public IEnumerator RevealTurnRoutine()  => RevealBoardRoutine(1);
@@ -153,6 +141,20 @@ namespace Poker.GameLoop
 
         #region Helpers ------------------------------------------------------
 
+        /// <summary>Удаляет ВСЕ визуальные карты с рук игроков и борда.</summary>
+        private void ClearTable()
+        {
+            // 1) борд
+            tableView.ResetBoard();
+
+            // 2) руки игроков
+            foreach (var p in players)
+            {
+                var view = p.GetComponent<PlayerView>();
+                view?.ResetView();
+            }
+        }
+
         private IEnumerator RevealBoardRoutine(int count)
         {
             for (int i = 0; i < count; i++)
@@ -160,15 +162,9 @@ namespace Poker.GameLoop
                 var card = deck.DrawCard();
                 BoardCards.Add(card);
 
-                Debug.Log($"[Board] Slot{BoardCards.Count-1}: {card.rank} of {card.suit}");
                 yield return tableView.ShowBoardCardAsync(card, factory);
                 yield return wb;
             }
-        }
-
-        private static IEnumerator RunTask(Task task)
-        {
-            while (!task.IsCompleted) yield return null;
         }
 
         #endregion

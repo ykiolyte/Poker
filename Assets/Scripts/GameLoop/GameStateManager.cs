@@ -2,7 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
-using Poker.Game.Betting;                       // ← Street enum
+using Poker.Game.Betting;
 
 namespace Poker.GameLoop
 {
@@ -11,6 +11,8 @@ namespace Poker.GameLoop
     {
         [SerializeField] private RoundManager  round;
         [SerializeField] private BettingSystem betting;
+
+        public event System.Action RoundStarted; // 👈 новое событие
 
         readonly Queue<IGameState> sequence = new();
 
@@ -39,10 +41,13 @@ namespace Poker.GameLoop
         }
 
         #region Accessors
+
         public RoundManager  Round   => round;
         public BettingSystem Betting => betting;
-        List<PokerPlayerController> ActivePlayers() =>
+
+        public List<PokerPlayerController> ActivePlayers() =>
             Object.FindObjectsByType<PokerPlayerController>(FindObjectsSortMode.None).ToList();
+
         #endregion
 
         #region concrete states ---------------------------------------------
@@ -55,6 +60,8 @@ namespace Poker.GameLoop
             public IEnumerator Execute()
             {
                 yield return ctx.Round.SetupNewHandRoutine();
+                ctx.RoundStarted?.Invoke(); // 👈 уведомляем сервер о начале раздачи
+
                 yield return ctx.Round.DealHoleCardsRoutine();
                 yield return ctx.Betting.ExecuteBettingRound(ctx.ActivePlayers(), Street.Preflop);
             }

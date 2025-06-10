@@ -2,10 +2,13 @@ using System.Collections.Generic;
 
 namespace Poker.Domain.Betting
 {
-    /// <summary>Агрегат «банк» с учётом индивидуальных вкладов.</summary>
+    /// <summary>
+    /// Агрегат «банк» с учётом индивидуальных вкладов.
+    /// </summary>
     public sealed class Pot
     {
-        private readonly Dictionary<int,int> _contributions = new();
+        private readonly Dictionary<int, int> _contributions = new();
+
         public int Total { get; private set; }
 
         public void AddBet(PokerPlayerModel player, int amount)
@@ -27,5 +30,10 @@ namespace Poker.Domain.Betting
             _contributions.Clear();
             Total = 0;
         }
+
+        /// <summary>
+        /// Возвращает копию словаря вкладов — для сайд-потов.
+        /// </summary>
+        public Dictionary<int, int> Contributions => new(_contributions);
     }
 }

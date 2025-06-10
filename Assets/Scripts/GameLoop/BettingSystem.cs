@@ -29,7 +29,8 @@ namespace Poker.GameLoop
                 settings.BigBlind,
                 street,
                 timer,
-                ui); // ← теперь передаём UI
+                ui,
+                settings); // ← теперь передаём UI
 
             fsm.RoundCompleted += round =>
             {
